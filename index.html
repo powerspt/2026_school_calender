@@ -206,9 +206,13 @@
 
   <!-- ===== DAY OF WEEK ===== -->
   <div id="tab-dow" class="card" style="display:none">
-    <p class="hint">특정 <b>요일</b>(여러 개 선택 가능)에 정기 수업·활동이 있을 때, 학년도 전체에서 그 요일이 어떤 상태인지(여유/시험/행사 등) 한눈에 확인합니다. (예: 매주 화·목 수업 → 어떤 화·목이 비어있나)</p>
+    <p class="hint">특정 <b>요일</b>과 <b>학교</b>(둘 다 여러 개 선택 가능)를 골라, 학년도 전체에서 그 요일이 어떤 상태인지(여유/시험/행사 등) 한눈에 확인합니다. 여러 학교를 고르면 학교별 상태가 나란히 표시됩니다.</p>
     <div class="controls">
-      <select id="dowSchool"></select>
+      <button class="tlbtn" id="dowAllS">학교 전체</button>
+      <button class="tlbtn" id="dowNoneS">학교 해제</button>
+      <div id="dowSchoolChecks" style="display:flex;flex-wrap:wrap;gap:6px 14px;max-width:840px"></div>
+    </div>
+    <div class="controls">
       <div class="seg" id="dowSeg">
         <button data-d="1" class="on">월</button>
         <button data-d="2">화</button>
@@ -219,7 +223,8 @@
         <button data-d="0">일</button>
       </div>
       <button class="tlbtn" id="dowWeekdays">평일(월~금)</button>
-      <button class="tlbtn" id="dowClear">선택 해제</button>
+      <button class="tlbtn" id="dowClear">요일 해제</button>
+      <label style="margin-left:6px;font-size:14px;cursor:pointer"><input type="checkbox" id="dowFreeOnly"> <b>여유 있는 날만 보기</b></label>
     </div>
     <div class="filters" id="dowFilters">
       <span class="muted">‘일정 있음(여유 아님)’으로 볼 항목:</span>
@@ -479,11 +484,15 @@ function renderCompare(){
 }
 
 // ===== day-of-week tab =====
-let dowSchoolIdx=0;
 let dowDays=new Set([1]);
-const dowSchoolSel=document.getElementById('dowSchool');
-DATA.schools.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=s.name+` (${s.events.length}건)`;dowSchoolSel.appendChild(o);});
-dowSchoolSel.onchange=()=>{dowSchoolIdx=+dowSchoolSel.value;renderDow();};
+let dowSchools=new Set([0]);
+const dowChecks=document.getElementById('dowSchoolChecks');
+DATA.schools.forEach((s,i)=>{const l=document.createElement('label');l.style.cssText='font-size:13px;cursor:pointer';l.innerHTML=`<input type="checkbox" class="dowschk" value="${i}" ${i===0?'checked':''}> ${s.name}`;dowChecks.appendChild(l);});
+function syncDowSchools(){dowSchools=new Set([...document.querySelectorAll('.dowschk:checked')].map(c=>+c.value));}
+dowChecks.addEventListener('change',()=>{syncDowSchools();renderDow();});
+document.getElementById('dowAllS').onclick=()=>{document.querySelectorAll('.dowschk').forEach(c=>c.checked=true);syncDowSchools();renderDow();};
+document.getElementById('dowNoneS').onclick=()=>{document.querySelectorAll('.dowschk').forEach(c=>c.checked=false);syncDowSchools();renderDow();};
+document.getElementById('dowFreeOnly').onchange=renderDow;
 function dowOccSet(){const s=new Set();document.querySelectorAll('.dowcatf:checked').forEach(c=>s.add(c.value));return s;}
 function syncDowSeg(){document.querySelectorAll('#dowSeg button').forEach(b=>b.classList.toggle('on',dowDays.has(+b.dataset.d)));}
 document.querySelectorAll('#dowSeg button').forEach(b=>b.onclick=()=>{
@@ -507,43 +516,71 @@ function dowStatus(info,occ){
 }
 
 function dowName(){return [1,2,3,4,5,6,0].filter(x=>dowDays.has(x)).map(x=>DOW[x]).join('·')+'요일';}
+function dowDates(){const out=[];let d=new Date(2026,2,1),end=new Date(2027,1,28);while(d<=end){if(dowDays.has(d.getDay()))out.push(iso(d));d.setDate(d.getDate()+1);}return out;}
 
 function renderDow(){
-  const school=DATA.schools[dowSchoolIdx];
-  const mo=buildModel(school);
   const occ=dowOccSet();
   const out=document.getElementById('dowOut');
-  if(dowDays.size===0){ out.innerHTML='<p class="muted">요일을 1개 이상 선택하세요.</p>'; document.getElementById('dowKpi').innerHTML=''; return; }
-  const dates=[];
-  let d=new Date(2026,2,1); const end=new Date(2027,1,28);
-  while(d<=end){ if(dowDays.has(d.getDay())) dates.push(iso(d)); d.setDate(d.getDate()+1); }
-  let free=0,busy=0;
-  let curMonth=null;
-  let html='<table class="list"><thead><tr><th style="width:150px">날짜</th><th style="width:96px">상태</th><th>내용</th></tr></thead><tbody>';
-  dates.forEach(ds=>{
-    const info=mo.dayInfo(ds);
-    const st=dowStatus(info,occ);
-    if(st.key==='여유')free++;
-    else if(PRI.includes(st.key))busy++;
-    const dt=parse(ds);
-    if(dt.getMonth()!==curMonth){
-      curMonth=dt.getMonth();
-      html+=`<tr style="background:#f2f5fb"><td colspan="3" style="font-weight:700;color:#2b3a67">${dt.getFullYear()}년 ${dt.getMonth()+1}월</td></tr>`;
-    }
-    const dateLabel=`${dt.getMonth()+1}. ${dt.getDate()}. (${DOW[dt.getDay()]})`;
-    const content = info.events.length
-      ? info.events.map(e=>`<span class="catbadge" style="background:${catColor(e.category)};margin-right:5px">${e.category}</span>${e.title}`).join(' &nbsp; ')
-      : (st.key==='여유' ? '<span class="muted">행사 없음 — 여유</span>' : `<span class="muted">${st.label}</span>`);
-    const rowStyle = st.key==='여유' ? 'background:var(--free);' : '';
-    html+=`<tr style="${rowStyle}"><td>${dateLabel}</td><td><span class="catbadge" style="background:${st.color}">${st.label}</span></td><td>${content}</td></tr>`;
-  });
-  html+='</tbody></table>';
-  out.innerHTML=html;
+  const kpi=document.getElementById('dowKpi');
+  const freeOnly=document.getElementById('dowFreeOnly').checked;
+  if(dowDays.size===0){ out.innerHTML='<p class="muted">요일을 1개 이상 선택하세요.</p>'; kpi.innerHTML=''; return; }
+  const idxs=[...dowSchools].sort((a,b)=>a-b);
+  if(idxs.length===0){ out.innerHTML='<p class="muted">학교를 1개 이상 선택하세요.</p>'; kpi.innerHTML=''; return; }
+  const schools=idxs.map(i=>({name:DATA.schools[i].name, mo:buildModel(DATA.schools[i])}));
+  const dates=dowDates();
   const dn=dowName();
-  document.getElementById('dowKpi').innerHTML=
-    `<div class="box"><span>${school.name} · ${dn} 총 횟수</span><div class="big">${dates.length}회</div></div>`+
-    `<div class="box"><span>여유 (${dn})</span><div class="big" style="color:#1d7a4d">${free}회</div></div>`+
-    `<div class="box"><span>행사·시험 있는 날</span><div class="big">${busy}회</div></div>`;
+  let allFreeCount=0;
+  const rows=dates.map(ds=>{
+    const cells=schools.map(s=>{const info=s.mo.dayInfo(ds);return {info, st:dowStatus(info,occ)};});
+    const allFree=cells.every(c=>c.st.key==='여유');
+    if(allFree)allFreeCount++;
+    return {ds,cells,allFree};
+  });
+  const shown=freeOnly?rows.filter(r=>r.allFree):rows;
+  let curMonth=null, html='';
+
+  if(schools.length===1){
+    html='<table class="list"><thead><tr><th style="width:150px">날짜</th><th style="width:96px">상태</th><th>내용</th></tr></thead><tbody>';
+    if(!shown.length) html+='<tr><td colspan="3" class="muted" style="padding:14px">조건에 맞는 날이 없습니다.</td></tr>';
+    shown.forEach(r=>{
+      const c=r.cells[0], st=c.st, info=c.info, dt=parse(r.ds);
+      if(dt.getMonth()!==curMonth){curMonth=dt.getMonth();html+=`<tr style="background:#f2f5fb"><td colspan="3" style="font-weight:700;color:#2b3a67">${dt.getFullYear()}년 ${dt.getMonth()+1}월</td></tr>`;}
+      const dateLabel=`${dt.getMonth()+1}. ${dt.getDate()}. (${DOW[dt.getDay()]})`;
+      const content=info.events.length?info.events.map(e=>`<span class="catbadge" style="background:${catColor(e.category)};margin-right:5px">${e.category}</span>${e.title}`).join(' &nbsp; '):(st.key==='여유'?'<span class="muted">행사 없음 — 여유</span>':`<span class="muted">${st.label}</span>`);
+      html+=`<tr style="${st.key==='여유'?'background:var(--free);':''}"><td>${dateLabel}</td><td><span class="catbadge" style="background:${st.color}">${st.label}</span></td><td>${content}</td></tr>`;
+    });
+    html+='</tbody></table>';
+  } else {
+    html='<div style="overflow-x:auto"><table class="list"><thead><tr><th style="width:120px">날짜</th>';
+    schools.forEach(s=>html+=`<th style="white-space:nowrap">${s.name}</th>`);
+    html+='</tr></thead><tbody>';
+    if(!shown.length) html+=`<tr><td colspan="${schools.length+1}" class="muted" style="padding:14px">조건에 맞는 날이 없습니다.</td></tr>`;
+    shown.forEach(r=>{
+      const dt=parse(r.ds);
+      if(dt.getMonth()!==curMonth){curMonth=dt.getMonth();html+=`<tr style="background:#f2f5fb"><td colspan="${schools.length+1}" style="font-weight:700;color:#2b3a67">${dt.getFullYear()}년 ${dt.getMonth()+1}월</td></tr>`;}
+      html+=`<tr style="${r.allFree?'background:var(--free);':''}"><td style="white-space:nowrap">${dt.getMonth()+1}. ${dt.getDate()}. (${DOW[dt.getDay()]})</td>`;
+      r.cells.forEach((c,ci)=>{
+        const evs=c.info.events.map(e=>e.title+'['+e.category+']').join(', ')||c.st.label;
+        html+=`<td title="${esc(schools[ci].name+' · '+evs)}"><span class="catbadge" style="background:${c.st.color}">${c.st.label}</span></td>`;
+      });
+      html+='</tr>';
+    });
+    html+='</tbody></table></div>';
+  }
+  out.innerHTML=html;
+
+  if(schools.length===1){
+    const busy=rows.filter(r=>PRI.includes(r.cells[0].st.key)).length;
+    kpi.innerHTML=
+      `<div class="box"><span>${schools[0].name} · ${dn} 총 횟수</span><div class="big">${dates.length}회</div></div>`+
+      `<div class="box"><span>여유 (${dn})</span><div class="big" style="color:#1d7a4d">${allFreeCount}회</div></div>`+
+      `<div class="box"><span>행사·시험 있는 날</span><div class="big">${busy}회</div></div>`;
+  } else {
+    kpi.innerHTML=
+      `<div class="box"><span>선택 ${schools.length}개교 · ${dn}</span><div class="big">${dates.length}일</div></div>`+
+      `<div class="box"><span>모두 여유인 날</span><div class="big" style="color:#1d7a4d">${allFreeCount}일</div></div>`+
+      `<div class="box"><span>${freeOnly?'표시 중(여유만)':'표시 중(전체)'}</span><div class="big">${shown.length}일</div></div>`;
+  }
 }
 
 // tabs

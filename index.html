@@ -91,6 +91,16 @@
   .tl-ev{font-size:12.5px;padding:4px 0;border-bottom:1px dashed #eef1f6;display:flex;gap:9px;align-items:baseline;}
   .tl-ev:last-child{border-bottom:0;}
   .tl-ev .d{color:var(--muted);min-width:108px;font-variant-numeric:tabular-nums;}
+  /* day-of-week scrollable table */
+  .dow-scroll{max-height:600px;overflow:auto;border:1px solid var(--line);border-radius:10px;}
+  table.dowtbl{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px;}
+  table.dowtbl th,table.dowtbl td{padding:7px 11px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap;background:#fff;}
+  table.dowtbl thead th{position:sticky;top:0;z-index:3;background:#f7f9ff;border-bottom:2px solid var(--line);}
+  table.dowtbl .stick-l{position:sticky;left:0;z-index:2;border-right:1px solid var(--line);}
+  table.dowtbl thead th.stick-l{z-index:5;}
+  table.dowtbl tr.mhead td{background:#eef2fb;font-weight:700;color:#2b3a67;}
+  table.dowtbl tr.freerow td{background:var(--free);}
+  table.dowtbl tr.freerow td.stick-l{background:#d8f1e2;}
   @media(max-width:720px){.summary{grid-template-columns:1fr;} td.cal-td{height:auto;}}
 </style>
 </head>
@@ -225,6 +235,12 @@
       <button class="tlbtn" id="dowWeekdays">평일(월~금)</button>
       <button class="tlbtn" id="dowClear">요일 해제</button>
       <label style="margin-left:6px;font-size:14px;cursor:pointer"><input type="checkbox" id="dowFreeOnly"> <b>여유 있는 날만 보기</b></label>
+    </div>
+    <div class="controls">
+      <span class="muted" style="font-size:13px">월 선택:</span>
+      <div class="seg" id="dowMonthSeg" style="flex-wrap:wrap"></div>
+      <button class="tlbtn" id="dowMonthAll">전체</button>
+      <button class="tlbtn" id="dowMonthNone">해제</button>
     </div>
     <div class="filters" id="dowFilters">
       <span class="muted">‘일정 있음(여유 아님)’으로 볼 항목:</span>
@@ -503,6 +519,15 @@ document.getElementById('dowWeekdays').onclick=()=>{dowDays=new Set([1,2,3,4,5])
 document.getElementById('dowClear').onclick=()=>{dowDays=new Set();syncDowSeg();renderDow();};
 document.querySelectorAll('.dowcatf').forEach(c=>c.onchange=renderDow);
 
+const MONTH_ORDER=[3,4,5,6,7,8,9,10,11,12,1,2];
+let dowMonths=new Set(MONTH_ORDER);
+const dowMonthSeg=document.getElementById('dowMonthSeg');
+MONTH_ORDER.forEach(m=>{const b=document.createElement('button');b.dataset.m=m;b.textContent=m+'월';b.className='on';dowMonthSeg.appendChild(b);});
+function syncDowMonth(){document.querySelectorAll('#dowMonthSeg button').forEach(b=>b.classList.toggle('on',dowMonths.has(+b.dataset.m)));}
+document.querySelectorAll('#dowMonthSeg button').forEach(b=>b.onclick=()=>{const m=+b.dataset.m;if(dowMonths.has(m))dowMonths.delete(m);else dowMonths.add(m);syncDowMonth();renderDow();});
+document.getElementById('dowMonthAll').onclick=()=>{dowMonths=new Set(MONTH_ORDER);syncDowMonth();renderDow();};
+document.getElementById('dowMonthNone').onclick=()=>{dowMonths=new Set();syncDowMonth();renderDow();};
+
 function dowStatus(info,occ){
   if(!info.inRange) return {key:'학기외',color:'#cbd2dc',label:'학기 외'};
   if(info.holiday) return {key:'공휴일',color:catColor('공휴일'),label:'공휴일'};
@@ -516,7 +541,7 @@ function dowStatus(info,occ){
 }
 
 function dowName(){return [1,2,3,4,5,6,0].filter(x=>dowDays.has(x)).map(x=>DOW[x]).join('·')+'요일';}
-function dowDates(){const out=[];let d=new Date(2026,2,1),end=new Date(2027,1,28);while(d<=end){if(dowDays.has(d.getDay()))out.push(iso(d));d.setDate(d.getDate()+1);}return out;}
+function dowDates(){const out=[];let d=new Date(2026,2,1),end=new Date(2027,1,28);while(d<=end){if(dowDays.has(d.getDay())&&dowMonths.has(d.getMonth()+1))out.push(iso(d));d.setDate(d.getDate()+1);}return out;}
 
 function renderDow(){
   const occ=dowOccSet();
@@ -540,25 +565,25 @@ function renderDow(){
   let curMonth=null, html='';
 
   if(schools.length===1){
-    html='<table class="list"><thead><tr><th style="width:150px">날짜</th><th style="width:96px">상태</th><th>내용</th></tr></thead><tbody>';
+    html='<div class="dow-scroll"><table class="dowtbl"><thead><tr><th class="stick-l" style="min-width:150px">날짜</th><th style="min-width:96px">상태</th><th style="width:100%">내용</th></tr></thead><tbody>';
     if(!shown.length) html+='<tr><td colspan="3" class="muted" style="padding:14px">조건에 맞는 날이 없습니다.</td></tr>';
     shown.forEach(r=>{
       const c=r.cells[0], st=c.st, info=c.info, dt=parse(r.ds);
-      if(dt.getMonth()!==curMonth){curMonth=dt.getMonth();html+=`<tr style="background:#f2f5fb"><td colspan="3" style="font-weight:700;color:#2b3a67">${dt.getFullYear()}년 ${dt.getMonth()+1}월</td></tr>`;}
+      if(dt.getMonth()!==curMonth){curMonth=dt.getMonth();html+=`<tr class="mhead"><td class="stick-l" colspan="3">${dt.getFullYear()}년 ${dt.getMonth()+1}월</td></tr>`;}
       const dateLabel=`${dt.getMonth()+1}. ${dt.getDate()}. (${DOW[dt.getDay()]})`;
       const content=info.events.length?info.events.map(e=>`<span class="catbadge" style="background:${catColor(e.category)};margin-right:5px">${e.category}</span>${e.title}`).join(' &nbsp; '):(st.key==='여유'?'<span class="muted">행사 없음 — 여유</span>':`<span class="muted">${st.label}</span>`);
-      html+=`<tr style="${st.key==='여유'?'background:var(--free);':''}"><td>${dateLabel}</td><td><span class="catbadge" style="background:${st.color}">${st.label}</span></td><td>${content}</td></tr>`;
+      html+=`<tr class="${st.key==='여유'?'freerow':''}"><td class="stick-l">${dateLabel}</td><td><span class="catbadge" style="background:${st.color}">${st.label}</span></td><td style="white-space:normal">${content}</td></tr>`;
     });
-    html+='</tbody></table>';
+    html+='</tbody></table></div>';
   } else {
-    html='<div style="overflow-x:auto"><table class="list"><thead><tr><th style="width:120px">날짜</th>';
-    schools.forEach(s=>html+=`<th style="white-space:nowrap">${s.name}</th>`);
+    html='<div class="dow-scroll"><table class="dowtbl"><thead><tr><th class="stick-l" style="min-width:120px">날짜</th>';
+    schools.forEach(s=>html+=`<th>${s.name}</th>`);
     html+='</tr></thead><tbody>';
     if(!shown.length) html+=`<tr><td colspan="${schools.length+1}" class="muted" style="padding:14px">조건에 맞는 날이 없습니다.</td></tr>`;
     shown.forEach(r=>{
       const dt=parse(r.ds);
-      if(dt.getMonth()!==curMonth){curMonth=dt.getMonth();html+=`<tr style="background:#f2f5fb"><td colspan="${schools.length+1}" style="font-weight:700;color:#2b3a67">${dt.getFullYear()}년 ${dt.getMonth()+1}월</td></tr>`;}
-      html+=`<tr style="${r.allFree?'background:var(--free);':''}"><td style="white-space:nowrap">${dt.getMonth()+1}. ${dt.getDate()}. (${DOW[dt.getDay()]})</td>`;
+      if(dt.getMonth()!==curMonth){curMonth=dt.getMonth();html+=`<tr class="mhead"><td class="stick-l" colspan="${schools.length+1}">${dt.getFullYear()}년 ${dt.getMonth()+1}월</td></tr>`;}
+      html+=`<tr class="${r.allFree?'freerow':''}"><td class="stick-l">${dt.getMonth()+1}. ${dt.getDate()}. (${DOW[dt.getDay()]})</td>`;
       r.cells.forEach((c,ci)=>{
         const evs=c.info.events.map(e=>e.title+'['+e.category+']').join(', ')||c.st.label;
         html+=`<td title="${esc(schools[ci].name+' · '+evs)}"><span class="catbadge" style="background:${c.st.color}">${c.st.label}</span></td>`;
